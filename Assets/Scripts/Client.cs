@@ -1,8 +1,8 @@
 ﻿using System.Collections.Generic;
-using UnityEngine;
-using UnityEngine.UI;
-using UnityEngine.SceneManagement;
 using Unity.Networking.Transport;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 public class Client : MonoBehaviour
 {
@@ -36,7 +36,7 @@ public class Client : MonoBehaviour
     {
         currentTime = 0.0f;
         currentTick = 0;
-        latestTick = 0;
+        latestTick = 1;
         inputBuffer = new Input[BUFFER_SIZE];
         stateBuffer = new State[BUFFER_SIZE];
         positionError = Vector3.zero;
@@ -96,13 +96,17 @@ public class Client : MonoBehaviour
         NetworkEvent.Type command;
         while ((command = connection.PopEvent(networkDriver, out reader)) != NetworkEvent.Type.Empty)
         {
-            switch(command)
+            switch (command)
             {
                 case NetworkEvent.Type.Connect:
                     Debug.Log("Connected to server");
                     break;
                 case NetworkEvent.Type.Data:
                     Debug.Log("Received data");
+
+                    StateMessage recievedState = StateMessage.Deserialize(ref reader);
+                    ReconcileState(recievedState, Time.fixedDeltaTime);
+
                     //invoke ReconcileState
                     break;
                 case NetworkEvent.Type.Disconnect:
@@ -111,6 +115,9 @@ public class Client : MonoBehaviour
                     break;
             }
         }
+
+        //simulate receiving a state message with a tick number from the server to rewind back to when/if we reconcile
+        latestTick = Mathf.Clamp((currentTick - Random.Range(0, 15)), 0, currentTick);
     }
 
     private void AdvanceSimulation()
@@ -148,6 +155,7 @@ public class Client : MonoBehaviour
             SendInput();
 
             currentTick++;
+
         }
 
         this.currentTime = time;
