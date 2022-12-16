@@ -16,7 +16,7 @@ public class Server : MonoBehaviour
     private Rigidbody playerBody;
     private GameScene gameScene;
 
-    void Start()
+    void Awake()
     {
         deltaTime = Time.fixedDeltaTime;
         currentTick = 0;
@@ -96,6 +96,7 @@ public class Server : MonoBehaviour
                     case NetworkEvent.Type.Data:
                         InputMessage message = InputMessage.Deserialize(ref reader);
                         Debug.Log($"inputMessage={message}");
+                        Debug.Log("server tick: " + currentTick);
                         AdvanceSimulation(message, connection);
                         break;
                     case NetworkEvent.Type.Disconnect:
@@ -113,7 +114,7 @@ public class Server : MonoBehaviour
     {
         int startTick = message.startTick;
         int inputCount = message.inputs.Count;
-        int maxTick = startTick + inputCount - 1;
+        int maxTick = startTick + inputCount;
         if (maxTick >= currentTick)
         {
             int offsetTick =
@@ -124,10 +125,11 @@ public class Server : MonoBehaviour
             DataStreamWriter writer;
             for (int i = offsetTick; i < message.inputs.Count; i++)
             {
+                Debug.Log($"server processing inputs from client tick {startTick + i}");
                 GamePlayer.ApplyForce(playerBody, message.inputs[i]);
                 gameScene.Simulate(deltaTime);
 
-                currentTick++;
+                //currentTick++;
 
                 StateMessage stateMessage = new()
                 {
@@ -137,6 +139,8 @@ public class Server : MonoBehaviour
                     velocity = playerBody.velocity,
                     angularVelocity = playerBody.angularVelocity
                 };
+
+                currentTick++;
 
                 Debug.Log($"stateMessage={stateMessage}");
                 networkDriver.BeginSend(connection, out writer);

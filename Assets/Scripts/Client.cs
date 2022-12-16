@@ -7,6 +7,11 @@ struct ClientState
 {
     public Vector3 position;
     public Quaternion rotation;
+
+    public override string ToString()
+    {
+        return (position + " " + rotation );
+    }
 }
 
 public class Client : MonoBehaviour
@@ -33,6 +38,8 @@ public class Client : MonoBehaviour
 
     void Start()
     {
+        //Time.timeScale = 0.2f;
+
         deltaTime = Time.fixedDeltaTime;
         currentTime = 0.0f;
         currentTick = 0;
@@ -53,10 +60,12 @@ public class Client : MonoBehaviour
         correctionSmoothing.interactable = toggle;
     }
 
+
     void Update()
     {
         AdvanceSimulation();
         ProcessNetworkEvents();
+        Debug.Log("end client update");
     }
 
     void OnDestroy()
@@ -99,10 +108,11 @@ public class Client : MonoBehaviour
                 position = playerBody.position,
                 rotation = playerBody.rotation
             };
+            Debug.Log($"stored this step at {index} with values {stateBuffer[index]} current tick = {currentTick}");
 
             GamePlayer.ApplyForce(playerBody, input);
             gameScene.Simulate(deltaTime);
-
+                        
             SendInput();
 
             currentTick++;
@@ -127,6 +137,7 @@ public class Client : MonoBehaviour
                     StateMessage message = StateMessage.Deserialize(ref reader);
                     Debug.Log($"stateMessage: {message}");
                     //TODO: reconcile client state
+                    ReconcileState(message);
                     break;
                 case NetworkEvent.Type.Disconnect:
                     Debug.Log("Disconnected froms server");
@@ -146,11 +157,11 @@ public class Client : MonoBehaviour
 
         InputMessage message = new()
         {
-            startTick = redundantInput.isOn ? latestTick : currentTick,
+            startTick = redundantInput.isOn ? latestTick + 1 : currentTick,
             inputs = new List<UserInput>()
         };
-
-        for (int i = message.startTick; i <= currentTick; i++)
+        
+        for (int i = message.startTick; i <= currentTick; ++i)
         {
             message.inputs.Add(inputBuffer[i % BUFFER_SIZE]);
         }
@@ -171,19 +182,22 @@ public class Client : MonoBehaviour
 
         if (errorCorrection.isOn)
         {
-            int index = message.tick % BUFFER_SIZE;
+            int index = (message.tick % BUFFER_SIZE);
             Vector3 positionError =
                 message.position - stateBuffer[index].position;
+            Debug.LogError($"position error = {positionError}");
             float rotationError = 1.0f - Quaternion.Dot(
                 message.rotation,
                 stateBuffer[index].rotation);
+            //Debug.Log("client state at tick " + message.tick + " " + stateBuffer[index]);
 
             if (positionError.sqrMagnitude > 0.0000001f ||
                 rotationError > 0.00001f)
             {
-                Debug.Log($"Correct error at tick {message.tick} " +
-                    $"(rewinding {currentTick - message.tick} ticks)");
-
+                Debug.LogWarning($"stored state at {index} = {stateBuffer[index]} current tick = {currentTick}");
+                Debug.LogWarning($"Correct error at tick {message.tick} " +
+                    $"(rewinding {currentTick - message.tick} ticks) " + $"current tick = {currentTick} " + $"message tick = {message.tick}");
+                
                 Vector3 previousPosition =
                     playerBody.position + this.positionError;
                 Quaternion previousRotation =
@@ -198,12 +212,13 @@ public class Client : MonoBehaviour
                 while (rewindTick < currentTick)
                 {
                     index = rewindTick % BUFFER_SIZE;
-
+                    
                     stateBuffer[index] = new()
                     {
                         position = playerBody.position,
                         rotation = playerBody.rotation
                     };
+                    Debug.Log($"storing at {index} with value {stateBuffer[index]} during rewind");
 
                     GamePlayer.ApplyForce(playerBody, inputBuffer[index]);
                     gameScene.Simulate(deltaTime);
@@ -211,7 +226,9 @@ public class Client : MonoBehaviour
                     rewindTick++;
                 }
 
-                Vector3 positionDelta = previousPosition - playerBody.position;
+                Vector3 positionDelta = (previousPosition - playerBody.position);//*0.5f;
+                Debug.Log($"position delta = {positionDelta}");
+                //Debug.Log(Vector3.Lerp(playerBody.position, previousPosition, 0.5f));
                 if (positionDelta.sqrMagnitude >= 4.0f)
                 {
                     this.positionError = Vector3.zero;
@@ -229,11 +246,14 @@ public class Client : MonoBehaviour
 
         if (correctionSmoothing.isOn)
         {
-            this.positionError *= 0.9f;
+            Debug.Log($"position error = {positionError} a");
+            this.positionError *= 0.1f;
             this.rotationError = Quaternion.Slerp(
                 this.rotationError,
                 Quaternion.identity,
-                0.1f);
+                0.9f);
+
+            Debug.Log($"position error = {positionError} b");
         }
         else
         {
@@ -241,6 +261,7 @@ public class Client : MonoBehaviour
             this.rotationError = Quaternion.identity;
         }
 
+        Debug.Log($"position error = {positionError} f");
         playerBody.position += this.positionError;
         playerBody.rotation *= this.rotationError;
     }
